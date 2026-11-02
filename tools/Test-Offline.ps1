@@ -71,6 +71,21 @@ try {
         }
         Reject {Grant-NSPLocalAccountCertificateAccess -Name svc_test -Thumbprint ('A'*40) -Execute -Confirm:$false}
         Check ($state.AclWrites -eq 1) 'Certificate without private key reached ACL mutation.'
+        # Key-file mapping for software providers, including CryptoAPI keys that .NET presents as RSACng.
+        $keyBase=Join-Path ([IO.Path]::GetTempPath()) ('nsp-local-key-'+[guid]::NewGuid().ToString('N'))
+        foreach($folder in 'Microsoft\Crypto\Keys','Microsoft\Crypto\RSA\MachineKeys') { [void][IO.Directory]::CreateDirectory((Join-Path $keyBase $folder)) }
+        try {
+            [IO.File]::WriteAllText((Join-Path $keyBase 'Microsoft\Crypto\Keys\cng_key'),'synthetic')
+            [IO.File]::WriteAllText((Join-Path $keyBase 'Microsoft\Crypto\RSA\MachineKeys\capi_key'),'synthetic')
+            Check ((Resolve-NSPLocalAccountMachineKeyPath -Provider 'Microsoft Software Key Storage Provider' -IsMachineKey $true -UniqueName 'cng_key' -Base $keyBase) -like '*\Microsoft\Crypto\Keys\cng_key') 'CNG software key not mapped to Crypto\Keys.'
+            Check ((Resolve-NSPLocalAccountMachineKeyPath -Provider 'Microsoft Base Cryptographic Provider v1.0' -IsMachineKey $true -UniqueName 'capi_key' -Base $keyBase) -like '*\RSA\MachineKeys\capi_key') 'CryptoAPI software key (as RSACng) not mapped to MachineKeys.'
+            Check ((Resolve-NSPLocalAccountMachineKeyPath -Provider 'Microsoft Enhanced RSA and AES Cryptographic Provider' -IsMachineKey $true -UniqueName 'capi_key' -Base $keyBase) -like '*\RSA\MachineKeys\capi_key') 'Enhanced CryptoAPI key not mapped to MachineKeys.'
+            Reject {Resolve-NSPLocalAccountMachineKeyPath -Provider 'Microsoft Platform Crypto Provider' -IsMachineKey $true -UniqueName 'cng_key' -Base $keyBase}
+            Reject {Resolve-NSPLocalAccountMachineKeyPath -Provider 'Microsoft Base Cryptographic Provider v1.0' -IsMachineKey $true -UniqueName 'capi_key' -HardwareDevice $true -Base $keyBase}
+            Reject {Resolve-NSPLocalAccountMachineKeyPath -Provider 'Microsoft Base Cryptographic Provider v1.0' -IsMachineKey $false -UniqueName 'capi_key' -Base $keyBase}
+            Reject {Resolve-NSPLocalAccountMachineKeyPath -Provider 'Microsoft Base Cryptographic Provider v1.0' -IsMachineKey $true -UniqueName '..\cng_key' -Base $keyBase}
+            Reject {Resolve-NSPLocalAccountMachineKeyPath -Provider 'Microsoft Software Key Storage Provider' -IsMachineKey $true -UniqueName 'capi_key' -Base $keyBase}
+        } finally { [IO.Directory]::Delete($keyBase,$true) }
         # Compile interop without opening a policy handle or assigning a right.
         Initialize-NSPLocalAccountNative
         Check ([bool]('NSP.LocalAccount.NativeRights' -as [type])) 'Native bridge did not compile.'

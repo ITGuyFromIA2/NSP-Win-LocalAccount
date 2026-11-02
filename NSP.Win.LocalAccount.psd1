@@ -1,6 +1,6 @@
 @{
  RootModule='NSP.Win.LocalAccount.psm1'
- ModuleVersion='0.1.0'
+ ModuleVersion='0.1.1'
  GUID='6546f116-3c3b-4bb3-b47d-b2c09bc5f194'
  Author='Network Systems Plus'
  CompanyName='Network Systems Plus'
@@ -14,7 +14,7 @@
    Tags=@('LocalAccount','ServiceAccount','LogonAsBatch','ACL','Windows','NSP')
    ProjectUri='https://github.com/ITGuyFromIA2/NSP-Win-LocalAccount'
    LicenseUri='https://github.com/ITGuyFromIA2/NSP-Win-LocalAccount/blob/main/LICENSE'
-   ReleaseNotes='0.1.0: Plan-first local service account, batch-logon right, path and machine-key read access.'
+   ReleaseNotes='0.1.1: Machine-key read access also for software CryptoAPI keys (as New-SelfSignedCertificate -KeySpec creates), which .NET presents as RSACng.'
   }
  }
 }

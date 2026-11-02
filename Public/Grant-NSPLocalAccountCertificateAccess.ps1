@@ -4,8 +4,10 @@ function Grant-NSPLocalAccountCertificateAccess {
         Plans read access to one existing LocalMachine software RSA private-key file.
     .DESCRIPTION
         No key export, copy or certificate creation. CurrentUser, hardware/unknown providers
-        and certificates without a supported machine RSA key are rejected. Access applies
-        only to the selected local account and preserves existing ACLs.
+        and certificates without a supported machine RSA key are rejected. Software keys from
+        the CNG Software Key Storage Provider and from the Microsoft software CryptoAPI providers
+        (as New-SelfSignedCertificate -KeySpec creates) are supported in both editions. Access
+        applies only to the selected local account and preserves existing ACLs.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param([Parameter(Mandatory)][string]$Name,[Parameter(Mandatory)][ValidatePattern('^[A-Fa-f0-9]{40}$')][string]$Thumbprint,[switch]$Execute)
@@ -13,15 +15,13 @@ function Grant-NSPLocalAccountCertificateAccess {
     if(-not $certificate.HasPrivateKey) { throw 'Certificate has no private key.' }
     $rsa=[Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($certificate)
     try {
-        if($rsa -is [Security.Cryptography.RSACng] -and $rsa.Key.IsMachineKey -and $rsa.Key.Provider.Provider -eq 'Microsoft Software Key Storage Provider') {
-            $base=Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'Microsoft/Crypto/Keys'
-            $keyName=$rsa.Key.UniqueName
-        } elseif($rsa -is [Security.Cryptography.RSACryptoServiceProvider] -and $rsa.CspKeyContainerInfo.MachineKeyStore -and -not $rsa.CspKeyContainerInfo.HardwareDevice) {
-            $base=Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'Microsoft/Crypto/RSA/MachineKeys'
-            $keyName=$rsa.CspKeyContainerInfo.UniqueKeyContainerName
+        $key=if($rsa -is [Security.Cryptography.RSACng]) {
+            @{Provider=[string]$rsa.Key.Provider.Provider;IsMachineKey=[bool]$rsa.Key.IsMachineKey;UniqueName=[string]$rsa.Key.UniqueName;HardwareDevice=$false}
+        } elseif($rsa -is [Security.Cryptography.RSACryptoServiceProvider]) {
+            $info=$rsa.CspKeyContainerInfo
+            @{Provider=[string]$info.ProviderName;IsMachineKey=[bool]$info.MachineKeyStore;UniqueName=[string]$info.UniqueKeyContainerName;HardwareDevice=[bool]$info.HardwareDevice}
         } else { throw 'Only LocalMachine software RSA keys are supported; provision the certificate for the task account separately.' }
-        if(-not $keyName -or [IO.Path]::GetFileName($keyName) -ne $keyName) { throw 'Unexpected private-key container name.' }
-        $keyPath=Join-Path $base $keyName
+        $keyPath=Resolve-NSPLocalAccountMachineKeyPath @key
     } finally { if($rsa) { $rsa.Dispose() } }
     if(-not $PSCmdlet.ShouldProcess($Thumbprint,"Plan/apply private-key read access for local account $Name")) { return }
     Grant-NSPLocalAccountPathAccess -Name $Name -LiteralPath $keyPath -Rights Read -Execute:$Execute -Confirm:$false
